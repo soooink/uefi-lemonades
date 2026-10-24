@@ -1,0 +1,23 @@
+## @file
+# SPDX-License-Identifier: BSD-2-Clause-Patent
+##
+[Defines]
+  INF_VERSION = 0x00010005
+  BASE_NAME = LemonadesRpmhLib
+  FILE_GUID = EE87DF32-549C-4261-85D0-AB778B43EF3E
+  MODULE_TYPE = BASE
+  VERSION_STRING = 0.1
+  LIBRARY_CLASS = LemonadesRpmhLib
+
+[Sources]
+  LemonadesRpmh.c
+
+[Packages]
+  MdePkg/MdePkg.dec
+  lemonadesPkg/lemonades.dec
+
+[LibraryClasses]
+  BaseLib
+  DebugLib
+  IoLib
+  TimerLib

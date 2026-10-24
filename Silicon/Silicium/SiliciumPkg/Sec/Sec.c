@@ -1,0 +1,229 @@
+#include "UmiSmmuTrace.h"
+/**
+  Copyright (c) 2011-2017, ARM Limited. All rights reserved.
+  SPDX-License-Identifier: BSD-2-Clause-Patent
+**/
+
+#include <Library/PcdLib.h>
+#include <Library/DebugLib.h>
+#include <Library/PrePiLib.h>
+#include <Library/DebugAgentLib.h>
+#include <Library/BaseMemoryLib.h>
+#include <Library/SerialPortLib.h>
+#include <Library/PlatformSecLib.h>
+#include <Library/PrePiHobListPointerLib.h>
+#include <Library/CacheMaintenanceLib.h>
+#include <Library/MemoryMapHelperLib.h>
+#include <Library/TimerLib.h>
+#include <Library/HobLib.h>
+
+#include "Sec.h"
+
+// First argument (x0) of the previous stage, saved by ModuleEntryPoint.S
+extern UINT64  gSecEntryArg0;
+
+#ifndef MDEPKG_NDEBUG
+#ifndef UMI_SKIP_EARLY_FRAMEBUFFER
+STATIC
+VOID
+ClearFrameBuffer (VOID)
+{
+  EFI_MEMORY_REGION_DESCRIPTOR FrameBufferRegion;
+
+  // Locate "Display Reserved" Memory Region
+  LocateMemoryRegionByName ("Display Reserved", &FrameBufferRegion);
+  LocateMemoryRegionByName ("Display_Reserved", &FrameBufferRegion);
+
+  // Clear Memory Region
+  if (FrameBufferRegion.Address != 0 && FrameBufferRegion.Length != 0) {
+    ZeroMem ((VOID *)FrameBufferRegion.Address, FrameBufferRegion.Length);
+  }
+}
+
+#endif // UMI_SKIP_EARLY_FRAMEBUFFER
+
+STATIC
+VOID
+PrintFirmwareVersion (VOID)
+{
+  // umi has no qualified framebuffer until real GOP is installed.
+#ifndef UMI_SKIP_EARLY_FRAMEBUFFER
+  ClearFrameBuffer ();
+#endif
+
+  // Print UEFI Version Message
+  DEBUG ((EFI_D_WARN, "\n"));
+  DEBUG ((EFI_D_WARN, "Project Silicium for %a %a\n",            FixedPcdGetPtr (PcdSmbiosSystemManufacturer), FixedPcdGetPtr (PcdSmbiosSystemModel)));
+  DEBUG ((EFI_D_WARN, "Firmware Version %s Build at %a on %a\n", PcdGetPtr (PcdFirmwareVersionString), __TIME__, __DATE__));
+  DEBUG ((EFI_D_WARN, "\n"));
+}
+#endif
+
+STATIC
+EFI_STATUS
+InitializeMemory (VOID)
+{
+  EFI_STATUS                    Status;
+  EFI_MEMORY_REGION_DESCRIPTOR  UefiMemoryRegion;
+  EFI_HOB_HANDOFF_INFO_TABLE   *HobList;
+
+  // Locate "DXE Heap" Memory Region
+  LocateMemoryRegionByName ("DXE Heap", &UefiMemoryRegion);
+  LocateMemoryRegionByName ("DXE_Heap", &UefiMemoryRegion);
+
+  // Save UEFI Memory Details
+  UINTN UefiMemoryBase = UefiMemoryRegion.Address;
+  UINTN UefiMemorySize = UefiMemoryRegion.Length;
+
+  // Verify UEFI Memory Base
+  if (UefiMemoryBase == 0 && UefiMemorySize == 0) {
+    DEBUG ((EFI_D_ERROR, "Failed to Locate \"DXE Heap\" Memory Region!\n"));
+    return EFI_NOT_FOUND;
+  }
+
+  // Initialize HOB List
+  HobList = HobConstructor ((VOID *)UefiMemoryBase, UefiMemorySize, (VOID *)UefiMemoryBase, (VOID *)(UefiMemoryBase + UefiMemorySize));
+  PrePeiSetHobList (HobList);
+
+  // Initialize MMU & Memory HOBs
+  Status = MemoryPeim (UefiMemoryBase, UefiMemorySize);
+  if (EFI_ERROR (Status)) {
+    return Status;
+  }
+
+  // Build Stack HOB
+  BuildStackHob (FixedPcdGet64 (PcdCPUCoresStackBase), FixedPcdGet32 (PcdCPUCorePrimaryStackSize));
+
+  return EFI_SUCCESS;
+}
+
+/* lemonades bring-up progress: the panel self-refresh shows stores to the
+   inherited splash framebuffer immediately, so each stage paints its own
+   color and the color the screen settles on names the stage that died. */
+STATIC
+VOID
+LemonadesPaint (
+  UINT32  Color
+  )
+{
+  /* top band only: keep the on-screen console text below it */
+  volatile UINT32  *Pixel = (volatile UINT32 *)(UINTN)0x9C000000ULL;
+  UINTN             Count;
+
+  for (Count = 0; Count < (64u * 1080u); ++Count) {
+    Pixel[Count] = Color;
+  }
+}
+
+STATIC
+VOID
+SecMain (VOID)
+{
+  EFI_STATUS Status;
+
+  SerialPortInitialize ();
+  DEBUG ((EFI_D_ERROR, "UMI: SEC start\n"));
+  LemonadesPaint (0x00FFFF00);   /* yellow: SEC entered */
+  // Do Platform Specific Initialization
+  UmiSmmuSnapshot ("before-platform");
+  PlatformInitialize ();
+  UmiSmmuSnapshot ("after-platform");
+  DEBUG ((EFI_D_ERROR, "UMI: platform initialized\n"));
+  LemonadesPaint (0x00FF00FF);   /* magenta: PlatformInitialize returned */
+
+#ifndef MDEPKG_NDEBUG
+  // Initialize Serial Port
+  Status = SerialPortInitialize ();
+  if (EFI_ERROR (Status)) {
+    return;
+  }
+
+  // Print Firmware Version
+  PrintFirmwareVersion ();
+
+  // Initialize Debug Agent
+  InitializeDebugAgent (DEBUG_AGENT_INIT_POSTMEM_SEC, NULL, NULL);
+  SaveAndSetDebugTimerInterrupt (TRUE);
+#endif
+
+  DEBUG ((EFI_D_ERROR, "UMI: memory init start\n"));
+  // Initialize Memory
+  Status = InitializeMemory ();
+  DEBUG ((EFI_D_ERROR, "UMI: memory init returned %r\n", Status));
+  if (EFI_ERROR (Status)) {
+    LemonadesPaint (0x000000FF); /* blue: memory init FAILED */
+    return;
+  }
+  LemonadesPaint (0x0000FFFF);   /* cyan: memory init OK */
+
+  // Build CPU HOB
+  BuildCpuHob (ArmGetPhysicalAddressBits (), PcdGet8 (PcdPrePiCpuIoSize));
+
+  // Set the Boot Mode
+  SetBootMode (BOOT_WITH_DEFAULT_SETTINGS);
+
+  DEBUG ((EFI_D_ERROR, "UMI: platform PEI start\n"));
+  // Initialize Platform HOBs
+  Status = PlatformPeim ();
+  DEBUG ((EFI_D_ERROR, "UMI: platform PEI returned %r\n", Status));
+  if (EFI_ERROR (Status)) {
+    LemonadesPaint (0x00FF0000); /* red: PlatformPeim FAILED */
+    return;
+  }
+  LemonadesPaint (0x0080FF00);   /* orange: PlatformPeim OK */
+
+  // Pass on what the previous stage handed over in x0 (a DT address for a
+  // Linux-style boot loader), so a DXE driver can use it.
+  {
+    UINT64  EntryArg = gSecEntryArg0;
+
+    BuildGuidDataHob (&gSiliciumEntryArgHobGuid, &EntryArg, sizeof (EntryArg));
+  }
+
+  // Run Library Cconstructors
+  ProcessLibraryConstructorList ();
+
+  DEBUG ((EFI_D_ERROR, "UMI: FV decompress start\n"));
+  // Decompress all FVs
+  Status = DecompressFirstFv ();
+  DEBUG ((EFI_D_ERROR, "UMI: FV decompress returned %r\n", Status));
+  if (EFI_ERROR (Status)) {
+    DEBUG ((EFI_D_ERROR, "Failed to Decompress FV! Status = %r\n", Status));
+    LemonadesPaint (0x00FF0000); /* red: FV decompress FAILED */
+    return;
+  }
+  LemonadesPaint (0x00FFFFFF);   /* white: FV decompressed, loading DxeCore */
+
+  DEBUG ((EFI_D_ERROR, "UMI: DXE core load start\n"));
+  // Load DXE Core
+  Status = LoadDxeCoreFromFv (NULL, 0);
+  if (EFI_ERROR (Status)) {
+    DEBUG ((EFI_D_ERROR, "Failed to Load DXE Core! Status = %r\n", Status));
+  }
+}
+
+VOID
+SecEntry (VOID)
+{
+  // Disable Data Cache
+  ArmDisableDataCache ();
+
+  // Invalidate Instruction Cache
+  ArmInvalidateInstructionCache ();
+
+  // Enable Instruction Cache
+  ArmEnableInstructionCache ();
+
+  // Invalidate Stack & UEFI FD D-Cache
+  InvalidateDataCacheRange ((VOID *)FixedPcdGet64 (PcdCPUCoresStackBase), FixedPcdGet32 (PcdCPUCorePrimaryStackSize));
+  InvalidateDataCacheRange ((VOID *)FixedPcdGet64 (PcdFdBaseAddress),     FixedPcdGet32 (PcdFdSize));
+
+  // Verify Exception Vector Table
+  ASSERT (((UINTN)SecVectorTable & ARM_VECTOR_TABLE_ALIGNMENT) == 0);
+
+  // Enable new Exception Vector Table
+  ArmWriteVBar ((UINTN)SecVectorTable);
+
+  // Enter Main SEC Function
+  SecMain ();
+}

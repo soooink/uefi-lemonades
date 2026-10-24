@@ -1,0 +1,15 @@
+## @file
+# SPDX-License-Identifier: BSD-2-Clause-Patent
+##
+[Defines]
+  DEC_SPECIFICATION = 0x0001001B
+  PACKAGE_NAME = lemonadesPkg
+  PACKAGE_GUID = C7E4B2AE-5B9F-48C4-BFDA-D7ACFAA7B9F7
+  PACKAGE_VERSION = 0.1
+
+[Includes]
+  Include
+
+[LibraryClasses]
+  LemonadesSpmiLib|Include/Library/LemonadesSpmiLib.h
+  LemonadesRpmhLib|Include/Library/LemonadesRpmhLib.h

@@ -1,0 +1,31 @@
+[status]
+model_count = 1
+
+[boot_shim]
+requires_kernel_header = true
+
+# Matched to the uefiplat.cfg embedded in this phone's xbl (UEFI FD region).
+[uefi_fd]
+base = 0x9fc00000
+size = 0x300000
+
+[boot_image_kernel]
+# The OnePlus 8T-family ABL shipped an uncompressed Image+DTB kernel; gzip
+# decompression in this ABL is unverified. Try "none" first, "gzip" later.
+kernel_compression = "none"
+append_dtb = false
+
+[boot_image]
+header_version = 2
+base = 0
+kernel_offset = 0x8000
+ramdisk_offset = 0x1000000
+second_offset = 0xF00000
+tags_offset = 0x100
+pagesize = 4096
+os_version = "13.0.0"
+os_patch_level = "2025-01"
+# Stock boot_b carries the board DTB(s) after the ramdisk (chained layout,
+# dtb_size=0); this packer sets the standard v2 dtb field, which lands in the
+# same place. stock boot_b DTB blob (kona v2.1/v2/v1, 1428199 bytes, stock-identical); ABL picks the matching one. The v2.1-only file is lemonades.dtb.
+dtb = "Resources/DTBs/lemonades-full.dtb"

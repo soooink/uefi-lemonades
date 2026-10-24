@@ -1,0 +1,3 @@
+
+# Preserve inherited SEC CRLF line endings without whitespace false positives.
+Silicon/Silicium/SiliciumPkg/Sec/Sec.c whitespace=cr-at-eol

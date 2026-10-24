@@ -1,0 +1,22 @@
+## @file
+# lemonades on-screen serial console: ramoops ring + 8x16 framebuffer text.
+# SPDX-License-Identifier: BSD-2-Clause-Patent
+##
+
+[Defines]
+  INF_VERSION    = 0x0001001B
+  BASE_NAME      = FbSerialPortLib
+  FILE_GUID      = 7A1C5D2E-9B34-4E1F-8A60-2C5D9E1B4F03
+  MODULE_TYPE    = BASE
+  VERSION_STRING = 1.0
+  LIBRARY_CLASS  = SerialPortLib
+
+[Sources]
+  FbSerialPortLib.c
+  font.h
+
+[Packages]
+  MdePkg/MdePkg.dec
+
+[LibraryClasses]
+  BaseLib

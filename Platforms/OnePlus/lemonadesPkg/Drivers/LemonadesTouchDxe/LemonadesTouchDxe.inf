@@ -1,0 +1,39 @@
+## @file
+# SPDX-License-Identifier: BSD-2-Clause-Patent
+##
+[Defines]
+  INF_VERSION = 0x00010005
+  BASE_NAME = LemonadesTouchDxe
+  FILE_GUID = BB56C123-EB0E-41F0-8EE4-331A20AE7FCE
+  MODULE_TYPE = DXE_DRIVER
+  VERSION_STRING = 0.1
+  ENTRY_POINT = LemonadesTouchEntry
+  UNLOAD_IMAGE = LemonadesTouchUnload
+
+[Sources]
+  LemonadesTouch.c
+  FtsEvent.h
+
+[Packages]
+  MdePkg/MdePkg.dec
+  lemonadesPkg/lemonades.dec
+
+[LibraryClasses]
+  UefiDriverEntryPoint
+  UefiBootServicesTableLib
+  BaseLib
+  DebugLib
+  IoLib
+  TimerLib
+  LemonadesSpmiLib
+  LemonadesRpmhLib
+
+[Protocols]
+  gEfiAbsolutePointerProtocolGuid
+  gEfiDevicePathProtocolGuid
+
+[Guids]
+  gEfiEventExitBootServicesGuid
+
+[Depex]
+  TRUE
